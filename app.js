@@ -9,6 +9,7 @@
 // origen y que exporta ESPLoader y Transport, con los métodos setRTS/waitForUnlock/writeFlash.
 const ESPTOOL = 'https://cdn.jsdelivr.net/npm/esptool-js@0.5.7/bundle.js';
 const VID_ADAFRUIT = 0x239a; // familia Adafruit: incluye el cargador UF2 de las placas nRF52
+const PIDS_CARGADOR = [0x0029, 0x002a, 0x4029]; // identificadores del cargador UF2
 
 const $ = (id) => document.getElementById(id);
 
@@ -27,6 +28,10 @@ const soportaSerial = 'serial' in navigator;
     $('versionFirmware').textContent = 'versión ' + indice.version;
   } catch (e) {
     mostrarError('No he podido leer la lista de ficheros (firmware.json). Recarga la página; si sigue igual, avísame.');
+    return;
+  }
+  if (!indice.nrf52 && !indice.esp32) {
+    mostrarError('La lista de ficheros está vacía. Avisa de esto: es un fallo de la web.');
     return;
   }
   rellenarPlacas();
@@ -91,7 +96,8 @@ function actualizarDetalle() {
   $('ayudaConexion').innerHTML =
     s.familia === 'esp32'
       ? 'Conecta la placa con un <b>cable de datos</b> y pulsa el botón. Si no aparece el puerto, mantén pulsado ' +
-        '<b>BOOT</b> mientras conectas el cable.'
+        '<b>BOOT</b> mientras conectas el cable. <b>Ojo:</b> este fichero <b>instala desde cero</b>: borra lo que ' +
+        'tuviera el nodo (región, canales y ajustes) y después habrá que volver a configurarlo.'
       : 'Conecta la placa con un <b>cable de datos</b> y pulsa el botón: mando el nodo a modo grabación y te doy ' +
         'el fichero para que lo copies a la unidad que aparezca.';
 }
@@ -115,6 +121,7 @@ function dormir(ms) {
 
 function traducirError(e) {
   const m = String((e && e.message) || e || '');
+  if (/no he podido abrir la lista de puertos/i.test(m)) return 'El navegador ha bloqueado la elección del puerto. Vuelve a pulsar el botón y elige el puerto enseguida, sin esperar.';
   if (/No port selected|NotFoundError|cancel/i.test(m)) return 'No has elegido ningún puerto. Vuelve a intentarlo y elige el del nodo.';
   if (/Failed to open|NetworkError|InvalidState|busy|in use/i.test(m)) return 'El puerto está ocupado: solo un programa puede usarlo a la vez. Cierra la app de Meshtastic (o cualquier otro programa que hable con el nodo) y reinténtalo.';
   if (/Failed to fetch|NetworkError when|no se pudo descargar/i.test(m)) return 'No he podido descargar el fichero del firmware. Comprueba tu conexión y recarga la página.';
@@ -127,7 +134,9 @@ function traducirError(e) {
 async function descargarBinario(url, aviso, bytesEsperados) {
   const r = await fetch(url);
   if (!r.ok) throw new Error('no se pudo descargar el fichero (' + r.status + ')');
-  const total = Number(r.headers.get('content-length') || 0);
+  // Ojo: si el servidor manda el fichero comprimido, content-length no es el tamaño real,
+  // así que para el porcentaje se usa el tamaño que dice el índice.
+  const total = bytesEsperados || Number(r.headers.get('content-length') || 0);
   const lector = r.body.getReader();
   const trozos = [];
   let leido = 0;
@@ -154,7 +163,9 @@ async function puertoElegido() {
   try {
     return await navigator.serial.requestPort();
   } catch (e) {
-    throw new Error('No port selected');
+    // NotFoundError = el usuario ha cancelado; cualquier otro = el navegador ha bloqueado el diálogo.
+    if (e && e.name === 'NotFoundError') throw new Error('No port selected');
+    throw new Error('no he podido abrir la lista de puertos (' + ((e && e.message) || e) + ')');
   }
 }
 
@@ -178,10 +189,11 @@ async function flashear() {
 // ---------- ESP32: grabado real por cable ----------
 async function flashearESP32(s) {
   if (!soportaSerial) throw new Error('este navegador no puede grabar por cable');
-  progreso(2, 'Descargando el firmware…');
-  const datos = await descargarBinario(s.principal.url, 'Descargando el firmware…', s.principal.bytes);
-  progreso(22, 'Elige el puerto del nodo…');
+  // El puerto se pide PRIMERO: Chrome solo deja elegirlo si el clic es reciente.
+  progreso(2, 'Elige el puerto del nodo…');
   const puerto = await puertoElegido();
+  progreso(22, 'Descargando el firmware…');
+  const datos = await descargarBinario(s.principal.url, 'Descargando el firmware…', s.principal.bytes);
   const { ESPLoader, Transport } = await import(ESPTOOL);
   const transporte = new Transport(puerto, true);
   const cargador = new ESPLoader({
@@ -212,15 +224,19 @@ async function flashearESP32(s) {
       await dormir(100);
       await transporte.setRTS(false);
     } catch (e) { /* si no hay setRTS, la placa se reinicia sola al cerrar el puerto */ }
-    // Esperar a que el puerto quede libre antes de soltarlo (waitForUnlock es de instancia).
-    if (typeof transporte.waitForUnlock === 'function') { try { await transporte.waitForUnlock(1500); } catch (e) {} }
+    // Acotado con un tope de tiempo: waitForUnlock espera sin límite a que el puerto quede libre.
+    if (typeof transporte.waitForUnlock === 'function') {
+      try { await Promise.race([transporte.waitForUnlock(1500), dormir(1500)]); } catch (e) {}
+    }
   } finally {
     try { await transporte.disconnect(); } catch (e) { /* ya estaba cerrado */ }
   }
   progreso(100, 'Terminado.');
   $('resultado').innerHTML =
     '<span class="ok">Listo.</span> El nodo ya tiene el firmware nuevo. Si en unos segundos no aparece en la app de ' +
-    'Meshtastic, pulsa el botón <b>RESET</b> de la placa: es normal en la primera grabación.';
+    'Meshtastic, pulsa el botón <b>RESET</b> de la placa: es normal en la primera grabación.<br>' +
+    '<span class="sub">Como este fichero <b>instala desde cero</b>, el nodo se ha quedado sin configurar: revisa la ' +
+    'región y vuelve a poner tus canales.</span>';
 }
 
 // ---------- nRF52: modo grabación + copia manual del UF2 ----------
@@ -257,7 +273,11 @@ async function esperarCargador(intentos = 10, espera = 700) {
     await dormir(espera);
     try {
       const puertos = await navigator.serial.getPorts();
-      if (puertos.some((p) => (p.getInfo ? p.getInfo().usbVendorId : undefined) === VID_ADAFRUIT)) return true;
+      const hay = puertos.some((p) => {
+        const i = p.getInfo ? p.getInfo() : {};
+        return i.usbVendorId === VID_ADAFRUIT && PIDS_CARGADOR.includes(i.usbProductId);
+      });
+      if (hay) return true;
     } catch (e) { /* seguimos intentando */ }
   }
   return false;
@@ -275,7 +295,9 @@ function descargar() {
   a.click();
   a.remove();
   if (s.extra) {
-    $('resultado').innerHTML += '<br><span class="sub">Para actualizar sin cable (OTA) se usa el fichero <b>' +
+    // Se reemplaza la nota anterior en vez de acumular una por cada clic.
+    const base = $('resultado').innerHTML.split('<br><span class="sub">')[0];
+    $('resultado').innerHTML = base + '<br><span class="sub">Para actualizar sin cable (OTA) se usa el fichero <b>' +
       s.extra.nombre + '</b>, pero eso se hace desde la app oficial de Meshtastic, no desde aquí.</span>';
   }
 }

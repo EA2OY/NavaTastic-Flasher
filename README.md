@@ -5,7 +5,6 @@ Es un sitio **estático** (no hay servidor ni backend): se puede publicar en Git
 
 **Está publicado en <https://ea2oy.github.io/NavaTastic-Flasher/>** (repositorio
 [NavaTastic-Flasher](https://github.com/EA2OY/NavaTastic-Flasher), rama `main`, carpeta raíz).
-Esta carpeta es el **original** desde el que se copia al repositorio del flasher.
 
 ## Qué hace
 
@@ -43,8 +42,14 @@ cd webconfig
 python -m http.server 8000
 ```
 
-Y abre <http://localhost:8000> con **Chrome** o **Edge** de escritorio (en móvil y en Safari/Firefox no
-se puede flashear; la web lo avisa y ofrece la descarga manual).
+Y abre <http://localhost:8000> con un navegador de ordenador: Chrome, Edge o un Firefox reciente
+(WebSerial existe desde Firefox 151). La web avisa si el navegador no puede grabar y ofrece la
+descarga manual.
+
+## Nota para el mantenimiento
+
+Esta carpeta es el **original**: los cambios se hacen aquí y se copian al repositorio del flasher,
+incluido el fichero vacío `.nojekyll` (que es lo que hace que GitHub Pages sirva los ficheros tal cual).
 
 ## Publicarlo en GitHub Pages
 

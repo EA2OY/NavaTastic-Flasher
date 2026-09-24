@@ -3,6 +3,10 @@
 Página para **instalar o actualizar el firmware desde el navegador**, sin programas que instalar.
 Es un sitio **estático** (no hay servidor ni backend): se puede publicar en GitHub Pages tal cual.
 
+**Está publicado en <https://ea2oy.github.io/NavaTastic-Flasher/>** (repositorio
+[NavaTastic-Flasher](https://github.com/EA2OY/NavaTastic-Flasher), rama `main`, carpeta raíz).
+Esta carpeta es el **original** desde el que se copia al repositorio del flasher.
+
 ## Qué hace
 
 - **Placas ESP32-S3 (Heltec V3 y V4)**: flashea por cable con `esptool-js` (WebSerial), escribiendo el

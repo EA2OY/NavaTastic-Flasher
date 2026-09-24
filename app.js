@@ -5,7 +5,9 @@
 //          descarga el .uf2 para que el usuario lo copie a la unidad. Es el camino real.
 // Sin backend: todo ocurre en el navegador. Textos en lenguaje llano.
 
-const ESPTOOL = 'https://cdn.jsdelivr.net/npm/esptool-js@0.5.4/bundle.js';
+// Versión que usa el flasher oficial de Meshtastic. Comprobado que se sirve con permiso de otro
+// origen y que exporta ESPLoader y Transport, con los métodos setRTS/waitForUnlock/writeFlash.
+const ESPTOOL = 'https://cdn.jsdelivr.net/npm/esptool-js@0.5.7/bundle.js';
 const VID_ADAFRUIT = 0x239a; // familia Adafruit: incluye el cargador UF2 de las placas nRF52
 
 const $ = (id) => document.getElementById(id);
@@ -209,11 +211,11 @@ async function flashearESP32(s) {
         await cargador.hardReset();
       }
     } catch (e) { /* algunas placas se reinician solas */ }
+    // Esperar a que el puerto quede libre antes de soltarlo (waitForUnlock es de instancia).
+    if (typeof transporte.waitForUnlock === 'function') { try { await transporte.waitForUnlock(1500); } catch (e) {} }
   } finally {
     try { await transporte.disconnect(); } catch (e) { /* ya estaba cerrado */ }
   }
-  // Margen para que el USB se vuelva a montar antes de decir nada.
-  if (typeof Transport.waitForUnlock === 'function') { try { await Transport.waitForUnlock(1500); } catch (e) {} }
   progreso(100, 'Terminado.');
   $('resultado').innerHTML =
     '<span class="ok">Listo.</span> El nodo ya tiene el firmware nuevo. Si en unos segundos no aparece en la app de ' +

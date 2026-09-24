@@ -122,8 +122,9 @@ function traducirError(e) {
   return 'Algo ha fallado: ' + m;
 }
 
-// Descarga el fichero y lo devuelve en base64 (es lo que espera esptool-js).
-async function bytesABase64(url, aviso) {
+// Descarga el fichero y lo devuelve como cadena binaria (1 carácter = 1 byte), que es
+// exactamente lo que espera writeFlash de esptool-js: por dentro usa charCodeAt, NO base64.
+async function descargarBinario(url, aviso, bytesEsperados) {
   const r = await fetch(url);
   if (!r.ok) throw new Error('no se pudo descargar el fichero (' + r.status + ')');
   const total = Number(r.headers.get('content-length') || 0);
@@ -140,9 +141,13 @@ async function bytesABase64(url, aviso) {
   const todo = new Uint8Array(leido);
   let pos = 0;
   for (const t of trozos) { todo.set(t, pos); pos += t.length; }
+  // Red de seguridad: si el fichero no tiene el tamaño que dice el índice, no se graba nada.
+  if (bytesEsperados && todo.length !== bytesEsperados) {
+    throw new Error('el fichero descargado no cuadra: ' + todo.length + ' bytes en vez de ' + bytesEsperados);
+  }
   let bin = '';
   for (let i = 0; i < todo.length; i += 8192) bin += String.fromCharCode.apply(null, todo.subarray(i, i + 8192));
-  return btoa(bin);
+  return bin;
 }
 
 async function puertoElegido() {
@@ -174,7 +179,7 @@ async function flashear() {
 async function flashearESP32(s) {
   if (!soportaSerial) throw new Error('este navegador no puede grabar por cable');
   progreso(2, 'Descargando el firmware…');
-  const datos = await bytesABase64(s.principal.url, 'Descargando el firmware…');
+  const datos = await descargarBinario(s.principal.url, 'Descargando el firmware…', s.principal.bytes);
   progreso(22, 'Elige el puerto del nodo…');
   const puerto = await puertoElegido();
   const { ESPLoader, Transport } = await import(ESPTOOL);
@@ -201,16 +206,12 @@ async function flashearESP32(s) {
       },
     });
     progreso(97, 'Reiniciando el nodo…');
-    // El reinicio fiable en estas placas es soltar RTS a mano; hardReset() no siempre basta.
+    // El reinicio fiable en estas placas es soltar RTS a mano. (hardReset no existe en 0.5.x.)
     try {
-      if (transporte.setRTS) {
-        await transporte.setRTS(true);
-        await dormir(100);
-        await transporte.setRTS(false);
-      } else {
-        await cargador.hardReset();
-      }
-    } catch (e) { /* algunas placas se reinician solas */ }
+      await transporte.setRTS(true);
+      await dormir(100);
+      await transporte.setRTS(false);
+    } catch (e) { /* si no hay setRTS, la placa se reinicia sola al cerrar el puerto */ }
     // Esperar a que el puerto quede libre antes de soltarlo (waitForUnlock es de instancia).
     if (typeof transporte.waitForUnlock === 'function') { try { await transporte.waitForUnlock(1500); } catch (e) {} }
   } finally {

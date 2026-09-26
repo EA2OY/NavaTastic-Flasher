@@ -37,8 +37,12 @@ const soportaSerial = 'serial' in navigator;
   rellenarPlacas();
   $('placa').addEventListener('change', actualizarDetalle);
   document.querySelectorAll('input[name=rama]').forEach((r) => r.addEventListener('change', actualizarDetalle));
-  $('btnFlashear').addEventListener('click', flashear);
+  $('btnFlashear').addEventListener('click', () => flashear(false));
+  $('btnSinBorrar').addEventListener('click', () => flashear(true));
   $('btnDescargar').addEventListener('click', () => descargar());
+  $('btnSerie').addEventListener('click', alternarSerie);
+  $('btnCopiarLog').addEventListener('click', copiarConsola);
+  $('btnLimpiarLog').addEventListener('click', () => { $('consola').textContent = ''; });
   actualizarDetalle();
 })();
 
@@ -91,15 +95,23 @@ function actualizarDetalle() {
   const mb = (s.principal.bytes / 1048576).toFixed(1).replace('.', ',');
   $('detalleFichero').innerHTML =
     'Se instalará <b>' + s.principal.nombre + '</b> (' + mb + ' MB).';
+  const esESP32 = s.familia === 'esp32';
   $('btnFlashear').disabled = !soportaSerial;
-  $('btnFlashear').textContent = s.familia === 'esp32' ? 'Grabar por cable' : 'Poner en modo grabación';
-  $('ayudaConexion').innerHTML =
-    s.familia === 'esp32'
-      ? 'Conecta la placa con un <b>cable de datos</b> y pulsa el botón. Si no aparece el puerto, mantén pulsado ' +
-        '<b>BOOT</b> mientras conectas el cable. <b>Ojo:</b> este fichero <b>instala desde cero</b>: borra lo que ' +
-        'tuviera el nodo (región, canales y ajustes) y después habrá que volver a configurarlo.'
-      : 'Conecta la placa con un <b>cable de datos</b> y pulsa el botón: mando el nodo a modo grabación y te doy ' +
-        'el fichero para que lo copies a la unidad que aparezca.';
+  $('btnSinBorrar').disabled = !soportaSerial;
+  $('btnSinBorrar').hidden = !esESP32;
+  $('btnFlashear').textContent = esESP32 ? 'Borrado completo + instalar' : 'Poner en modo grabación';
+  $('notaBorrado').hidden = !esESP32;
+  $('notaBorrado').innerHTML =
+    '<b>Borrado completo + instalar</b>: borra toda la memoria del nodo (incluida su configuración) y después ' +
+    'instala el firmware. Es lo recomendado en la primera instalación y cuando algo va mal. ' +
+    '<b>Actualizar sin borrar</b>: cambia solo el firmware y conserva lo que tuviera el nodo (canales, claves, ' +
+    'nombre); para actualizar un nodo que ya lleva NavaTastic.';
+  $('btnSerie').hidden = !esESP32;
+  $('ayudaConexion').innerHTML = esESP32
+    ? 'Conecta la placa con un <b>cable de datos</b> y pulsa el botón. Si no aparece el puerto, mantén pulsado ' +
+      '<b>BOOT</b> mientras conectas el cable. En la <b>consola</b> de abajo se ve todo lo que va pasando.'
+    : 'Conecta la placa con un <b>cable de datos</b> y pulsa el botón: mando el nodo a modo grabación y te doy ' +
+      'el fichero para que lo copies a la unidad que aparezca.';
 }
 
 // ---------- utilidades ----------
@@ -117,6 +129,114 @@ function progreso(porcentaje, texto) {
 
 function dormir(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// ---------- consola: lo que va pasando, en pantalla ----------
+let bufferConsola = '';
+
+function consolaEstado(texto) {
+  $('consolaTitulo').textContent = texto;
+}
+
+function alFinalDeLaConsola() {
+  const c = $('consola');
+  return c.scrollHeight - c.scrollTop - c.clientHeight < 60;
+}
+
+function consolaLinea(texto, clase) {
+  const c = $('consola');
+  const s = document.createElement('span');
+  if (clase) s.className = clase;
+  s.textContent = String(texto).replace(/\s+$/, '') + '\n';
+  c.appendChild(s);
+  if (alFinalDeLaConsola()) c.scrollTop = c.scrollHeight;
+}
+
+// Para lo que llega del puerto serie: se pega tal cual, sin añadir saltos de línea.
+function consolaCrudo(texto) {
+  const c = $('consola');
+  c.appendChild(document.createTextNode(String(texto)));
+  if (alFinalDeLaConsola()) c.scrollTop = c.scrollHeight;
+}
+
+// esptool escribe unas veces líneas enteras y otras trozos sueltos: aquí se juntan.
+function terminalConsola() {
+  return {
+    clean() { $('consola').textContent = ''; bufferConsola = ''; },
+    writeLine(d) {
+      if (bufferConsola) { consolaLinea(bufferConsola); bufferConsola = ''; }
+      consolaLinea(d);
+    },
+    write(d) {
+      bufferConsola += String(d);
+      const partes = bufferConsola.split(/\r?\n/);
+      bufferConsola = partes.pop();
+      for (const p of partes) if (p.trim() !== '') consolaLinea(p);
+    },
+  };
+}
+
+// ---------- salida del nodo por el puerto serie ----------
+let leyendoSerie = false;
+
+async function alternarSerie() {
+  if (leyendoSerie) { leyendoSerie = false; return; }
+  try {
+    const puerto = await puertoElegido();
+    await verSerie(puerto, 90, false);
+  } catch (e) {
+    mostrarError(traducirError(e));
+  }
+}
+
+async function verSerie(puerto, segundos, automatico) {
+  if (leyendoSerie || !puerto) return;
+  leyendoSerie = true;
+  const boton = $('btnSerie');
+  boton.textContent = 'Parar';
+  consolaLinea('--- Salida del nodo por el puerto serie (' + segundos + ' s' + (automatico ? ', automático' : '') +
+    '). El despliegue interno tarda alrededor de un minuto: si no ves nada, pulsa otra vez «Ver salida del nodo». ---',
+    'propio');
+  consolaEstado('Leyendo la salida del nodo…');
+  let lector = null;
+  try {
+    await puerto.open({ baudRate: 115200 });
+    lector = puerto.readable.getReader();
+    const decodificador = new TextDecoder();
+    const fin = Date.now() + segundos * 1000;
+    while (leyendoSerie && Date.now() < fin) {
+      const r = await Promise.race([lector.read(), dormir(400).then(() => null)]);
+      if (!r) continue;
+      if (r.done) break;
+      if (r.value) consolaCrudo(decodificador.decode(r.value, { stream: true }));
+    }
+  } catch (e) {
+    consolaLinea('No he podido leer el puerto serie: ' + ((e && e.message) || e) +
+      ' — si el nodo acaba de reiniciarse, vuelve a probar con el botón.', 'avisoConsola');
+  } finally {
+    leyendoSerie = false;
+    boton.textContent = 'Ver salida del nodo';
+    try { if (lector) await lector.cancel(); } catch (e) { /* ya estaba cerrado */ }
+    try { await puerto.close(); } catch (e) { /* ya estaba cerrado */ }
+    consolaEstado('Terminado');
+  }
+}
+
+async function copiarConsola() {
+  const boton = $('btnCopiarLog');
+  try {
+    await navigator.clipboard.writeText($('consola').textContent);
+    boton.textContent = 'Copiado';
+  } catch (e) {
+    // Si el navegador no deja copiar solo, se deja el texto seleccionado para copiarlo a mano.
+    const rango = document.createRange();
+    rango.selectNodeContents($('consola'));
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(rango);
+    boton.textContent = 'Seleccionado';
+  }
+  setTimeout(() => { boton.textContent = 'Copiar'; }, 1600);
 }
 
 function traducirError(e) {
@@ -170,54 +290,74 @@ async function puertoElegido() {
 }
 
 // ---------- entrada ----------
-async function flashear() {
+async function flashear(conservar) {
   $('error').hidden = true;
   const s = seleccion();
   if (!s.principal) return;
   $('btnFlashear').disabled = true;
+  $('btnSinBorrar').disabled = true;
+  consolaEstado('Trabajando…');
+  consolaLinea('== NavaTastic: ' + (conservar ? 'actualizar sin borrar' : 'borrado completo + instalar') +
+    ' — ' + s.principal.nombre + ' ==', 'propio');
   try {
-    if (s.familia === 'esp32') await flashearESP32(s);
+    if (s.familia === 'esp32') await flashearESP32(s, conservar);
     else await modoGrabacionNRF52(s);
   } catch (e) {
-    mostrarError(traducirError(e));
+    const texto = traducirError(e);
+    mostrarError(texto);
+    consolaLinea(texto, 'errorConsola');
     progreso(0, '');
   } finally {
     $('btnFlashear').disabled = !soportaSerial;
+    $('btnSinBorrar').disabled = !soportaSerial;
   }
 }
 
 // ---------- ESP32: grabado real por cable ----------
-async function flashearESP32(s) {
+async function flashearESP32(s, conservar) {
   if (!soportaSerial) throw new Error('este navegador no puede grabar por cable');
   // El puerto se pide PRIMERO: Chrome solo deja elegirlo si el clic es reciente.
   progreso(2, 'Elige el puerto del nodo…');
+  consolaEstado('Eligiendo el puerto…');
   const puerto = await puertoElegido();
   progreso(22, 'Descargando el firmware…');
+  consolaEstado('Descargando el firmware…');
   const datos = await descargarBinario(s.principal.url, 'Descargando el firmware…', s.principal.bytes);
   const { ESPLoader, Transport } = await import(ESPTOOL);
   const transporte = new Transport(puerto, true);
   const cargador = new ESPLoader({
     transport: transporte,
     baudrate: 460800,
-    terminal: { clean() {}, writeLine() {}, write() {} },
+    terminal: terminalConsola(), // sin esto, todo lo que cuenta esptool se perdía
   });
+  let ultimoAviso = -10;
   try {
     progreso(26, 'Conectando con la placa…');
+    consolaEstado('Conectando con la placa…');
     await cargador.main();
-    progreso(30, 'Grabando el firmware. No desconectes el cable…');
+    progreso(30, conservar ? 'Actualizando el firmware. No desconectes el cable…'
+                           : 'Borrando y grabando el firmware. No desconectes el cable…');
+    consolaEstado(conservar ? 'Actualizando…' : 'Borrando y grabando…');
+    consolaLinea(conservar
+      ? 'No borro la memoria: se conserva la configuración que tuviera el nodo.'
+      : 'Borrado completo de la memoria antes de grabar (tarda unos segundos).', 'propio');
     await cargador.writeFlash({
-      fileArray: [{ data: datos, address: 0x0 }], // FACTORY = todo en uno, va en 0x0 (nunca 0x1000)
+      fileArray: [{ data: datos, address: 0x0 }], // FACTORY = todo en uno, va en 0x0 (nunca en 0x1000)
       flashMode: 'keep',
       flashFreq: 'keep',
       flashSize: 'keep',
-      eraseAll: true,
+      eraseAll: !conservar,
       compress: true,
       reportProgress: (i, escrito, total) => {
         const pct = total ? escrito / total : 0;
         progreso(30 + pct * 65, 'Grabando… ' + Math.round(pct * 100) + ' %');
+        // A la consola solo cada 10 %: si no, se llena de líneas repetidas.
+        const diez = Math.floor((pct * 100) / 10) * 10;
+        if (diez > ultimoAviso) { ultimoAviso = diez; consolaLinea('Grabando… ' + diez + ' %', 'propio'); }
       },
     });
     progreso(97, 'Reiniciando el nodo…');
+    consolaEstado('Reiniciando el nodo…');
     // El reinicio fiable en estas placas es soltar RTS a mano. (hardReset no existe en 0.5.x.)
     try {
       await transporte.setRTS(true);
@@ -233,10 +373,15 @@ async function flashearESP32(s) {
   }
   progreso(100, 'Terminado.');
   $('resultado').innerHTML =
-    '<span class="ok">Listo.</span> El nodo ya tiene el firmware nuevo. Si en unos segundos no aparece en la app de ' +
-    'Meshtastic, pulsa el botón <b>RESET</b> de la placa: es normal en la primera grabación.<br>' +
-    '<span class="sub">Como este fichero <b>instala desde cero</b>, el nodo se ha quedado sin configurar: revisa la ' +
-    'región y vuelve a poner tus canales.</span>';
+    '<span class="ok">Listo.</span> El nodo ya tiene el firmware nuevo y abajo, en la consola, estás viendo lo que ' +
+    'escribe al arrancar. Dale <b>un minuto</b>: en ese tiempo se configura solo y se reinicia una vez.<br>' +
+    '<span class="sub">' + (conservar
+      ? 'Se ha conservado la configuración que ya tenía el nodo (canales, claves y nombre).'
+      : 'La memoria se ha borrado entera, así que el nodo arranca de fábrica: el firmware le pone el canal ' +
+        'Navadmin, la región y las buenas prácticas. Si tenía canales propios, hay que volver a ponerlos.') +
+    '</span>';
+  // Tras grabar se escucha al nodo unos segundos: ahí se ve el arranque y el despliegue interno.
+  await verSerie(puerto, 25, true);
 }
 
 // ---------- nRF52: modo grabación + copia manual del UF2 ----------

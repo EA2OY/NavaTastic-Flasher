@@ -42,13 +42,35 @@
 
   <section class="paso">
     <h2><span>3</span> Graba el firmware</h2>
-    <button id="btnFlashear" disabled>Grabar</button>
-    <button id="btnDescargar" class="secundario">Descargar el fichero</button>
+    <div class="botonera">
+      <button id="btnFlashear" disabled>Grabar</button>
+      <button id="btnSinBorrar" class="secundario" hidden>Actualizar sin borrar</button>
+      <button id="btnDescargar" class="secundario">Descargar el fichero</button>
+    </div>
+    <p class="nota" id="notaBorrado" hidden></p>
     <div id="progreso" hidden>
       <div class="barra"><div id="barraRelleno"></div></div>
       <p id="progresoTexto"></p>
     </div>
     <p class="error" id="error" hidden></p>
+  </section>
+
+  <section class="paso">
+    <h2 class="sinNumero">Consola: qué está pasando</h2>
+    <p class="detalle">Aquí se ve todo paso a paso: la conexión con la placa, el borrado, la grabación y, después, lo
+      que el propio nodo escribe por el puerto serie (su arranque y su despliegue interno). Si algo falla, pulsa
+      <b>Copiar</b> y mándame ese texto: con él se averigua el problema sin adivinar.</p>
+    <div class="consolaCaja">
+      <div class="consolaCabecera">
+        <span id="consolaTitulo">Esperando…</span>
+        <span class="consolaBotones">
+          <button id="btnSerie" class="mini" hidden>Ver salida del nodo</button>
+          <button id="btnCopiarLog" class="mini">Copiar</button>
+          <button id="btnLimpiarLog" class="mini">Limpiar</button>
+        </span>
+      </div>
+      <pre id="consola"></pre>
+    </div>
   </section>
 
   <section class="paso">

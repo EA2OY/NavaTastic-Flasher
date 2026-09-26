@@ -95,7 +95,45 @@ button.secundario { margin-left: 8px; color: var(--texto); background: transpare
 .ayuda summary { cursor: pointer; color: var(--texto); }
 .ayuda li { margin: 6px 0; }
 
+/* ---------- botonera, notas y consola ---------- */
+.botonera { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+.nota { margin: 0 0 12px; color: var(--suave); font-size: 14px; }
+.paso h2.sinNumero { font-size: 17px; }
+
+.consolaCaja { border: 1px solid var(--borde); border-radius: 8px; overflow: hidden; }
+.consolaCabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #16202f;
+  border-bottom: 1px solid var(--borde);
+  color: var(--suave);
+  font-size: 13px;
+}
+.consolaBotones { display: flex; gap: 6px; }
+button.mini { padding: 4px 10px; font-size: 12px; font-weight: 600; border-radius: 6px; }
+
+#consola {
+  margin: 0;
+  padding: 10px 12px;
+  min-height: 96px;
+  max-height: 300px;
+  overflow: auto;
+  background: #0b1220;
+  color: #cbd5e1;
+  font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+#consola .propio { color: var(--acento); font-weight: 600; }
+#consola .avisoConsola { color: #fbbf24; }
+#consola .errorConsola { color: #fca5a5; }
+
 @media (max-width: 480px) {
   button { width: 100%; }
   button.secundario { margin: 8px 0 0; }
+  button.mini { width: auto; }
+  .consolaBotones { flex-wrap: wrap; }
 }

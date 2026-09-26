@@ -25,16 +25,17 @@ const soportaSerial = 'serial' in navigator;
     const r = await fetch('firmware.json', { cache: 'no-cache' });
     if (!r.ok) throw new Error('respuesta ' + r.status);
     indice = await r.json();
-    $('versionFirmware').textContent = 'versión ' + indice.version;
   } catch (e) {
     mostrarError('No he podido leer la lista de ficheros (firmware.json). Recarga la página; si sigue igual, avísame.');
     return;
   }
-  if (!indice.nrf52 && !indice.esp32) {
+  if (!indice.versiones && !indice.nrf52 && !indice.esp32) {
     mostrarError('La lista de ficheros está vacía. Avisa de esto: es un fallo de la web.');
     return;
   }
+  rellenarVersiones();
   rellenarPlacas();
+  $('version').addEventListener('change', () => { rellenarPlacas(); actualizarDetalle(); });
   $('placa').addEventListener('change', actualizarDetalle);
   document.querySelectorAll('input[name=rama]').forEach((r) => r.addEventListener('change', actualizarDetalle));
   $('btnFlashear').addEventListener('click', () => flashear(false));
@@ -51,12 +52,39 @@ function bonito(nombre) {
   return nombre.replace(/^HeltecV(\d)$/, 'Heltec V$1').replace(/\+/g, ' + ');
 }
 
+// La versión elegida (V5.3.1 sobre 2.7.26, V6 sobre 2.8.0...) manda sobre qué placas hay.
+function versionActual() {
+  if (indice.versiones) {
+    const id = $('version').value || indice.porDefecto || Object.keys(indice.versiones)[0];
+    return indice.versiones[id] || indice.versiones[indice.porDefecto];
+  }
+  return indice; // formato antiguo del índice, por si acaso
+}
+
+function rellenarVersiones() {
+  const sel = $('version');
+  sel.innerHTML = '';
+  if (!indice.versiones) {
+    sel.hidden = true;
+    $('detalleVersion').hidden = true;
+    return;
+  }
+  for (const [id, v] of Object.entries(indice.versiones)) {
+    const o = document.createElement('option');
+    o.value = id;
+    o.textContent = v.nombre + ' (' + v.base + ')';
+    sel.appendChild(o);
+  }
+  sel.value = indice.porDefecto || Object.keys(indice.versiones)[0];
+}
+
 function rellenarPlacas() {
   const sel = $('placa');
+  const v = versionActual();
   sel.innerHTML = '';
   const grupos = [
-    ['Placas nRF52840 (fichero UF2)', indice.nrf52],
-    ['Placas ESP32-S3 (grabado por cable)', indice.esp32],
+    ['Placas nRF52840 (fichero UF2)', v.nrf52],
+    ['Placas ESP32-S3 (grabado por cable)', v.esp32],
   ];
   for (const [titulo, tabla] of grupos) {
     if (!tabla) continue;
@@ -64,7 +92,7 @@ function rellenarPlacas() {
     g.label = titulo;
     for (const p of Object.keys(tabla)) {
       const o = document.createElement('option');
-      o.value = (indice.nrf52 && indice.nrf52[p] ? 'nrf52:' : 'esp32:') + p;
+      o.value = (v.nrf52 && v.nrf52[p] ? 'nrf52:' : 'esp32:') + p;
       o.textContent = bonito(p);
       g.appendChild(o);
     }
@@ -74,12 +102,13 @@ function rellenarPlacas() {
 
 // ---------- qué fichero toca ----------
 function seleccion() {
-  const [familia, placa] = $('placa').value.split(':');
+  const [familia, placa] = ($('placa').value || '').split(':');
   const rama = document.querySelector('input[name=rama]:checked').value;
-  const tabla = (familia === 'nrf52' ? indice.nrf52 : indice.esp32)[placa];
+  const v = versionActual();
+  const tabla = ((familia === 'nrf52' ? v.nrf52 : v.esp32) || {})[placa] || {};
   const principal = tabla[rama + (familia === 'nrf52' ? '_uf2' : '_FACTORY')];
   const extra = tabla[rama + (familia === 'nrf52' ? '_zip' : '_APP')];
-  return { familia, placa, rama, principal, extra };
+  return { familia, placa, rama, principal, extra, version: v };
 }
 
 function actualizarDetalle() {
@@ -87,6 +116,11 @@ function actualizarDetalle() {
   $('progreso').hidden = true;
   $('resultado').textContent = 'Cuando termine te diré aquí qué hacer. Normalmente nada: el nodo arranca solo.';
   const s = seleccion();
+  const v = s.version;
+  $('versionFirmware').textContent = v.nombre + ' · ' + v.base;
+  if ($('detalleVersion')) {
+    $('detalleVersion').textContent = v.nombre + ' · base ' + v.base + ' · publicada el ' + v.fecha + '.';
+  }
   if (!s.principal) {
     $('detalleFichero').textContent = 'No hay fichero para esa combinación. Avisa de esto: es un fallo de la web.';
     $('btnFlashear').disabled = true;
@@ -297,7 +331,8 @@ async function flashear(conservar) {
   $('btnFlashear').disabled = true;
   $('btnSinBorrar').disabled = true;
   consolaEstado('Trabajando…');
-  consolaLinea('== NavaTastic: ' + (conservar ? 'actualizar sin borrar' : 'borrado completo + instalar') +
+  consolaLinea('== ' + s.version.nombre + ' (' + s.version.base + '): ' +
+    (conservar ? 'actualizar sin borrar' : 'borrado completo + instalar') +
     ' — ' + s.principal.nombre + ' ==', 'propio');
   try {
     if (s.familia === 'esp32') await flashearESP32(s, conservar);
@@ -373,8 +408,9 @@ async function flashearESP32(s, conservar) {
   }
   progreso(100, 'Terminado.');
   $('resultado').innerHTML =
-    '<span class="ok">Listo.</span> El nodo ya tiene el firmware nuevo y abajo, en la consola, estás viendo lo que ' +
-    'escribe al arrancar. Dale <b>un minuto</b>: en ese tiempo se configura solo y se reinicia una vez.<br>' +
+    '<span class="ok">Listo.</span> El nodo ya tiene instalado <b>' + s.version.nombre + '</b> (' + s.version.base +
+    ') y abajo, en la consola, estás viendo lo que escribe al arrancar. Dale <b>un minuto</b>: en ese tiempo se ' +
+    'configura solo y se reinicia una vez.<br>' +
     '<span class="sub">' + (conservar
       ? 'Se ha conservado la configuración que ya tenía el nodo (canales, claves y nombre).'
       : 'La memoria se ha borrado entera, así que el nodo arranca de fábrica: el firmware le pone el canal ' +

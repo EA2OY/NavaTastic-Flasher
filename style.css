@@ -54,6 +54,7 @@ footer a { color: var(--acento); }
 }
 
 label { display: block; margin-bottom: 6px; color: var(--suave); font-size: 14px; }
+label.separado { margin-top: 16px; }
 select {
   width: 100%;
   padding: 10px;

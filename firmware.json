@@ -4,6 +4,8 @@
       "id": "v531",
       "nombre": "NavaTastic V5.3.1",
       "base": "Meshtastic 2.7.26",
+      "estado": "Beta (estable)",
+      "estable": true,
       "release": "https://github.com/EA2OY/NavaTastic/releases/tag/v5.3.1",
       "fecha": "2026-09-26",
       "nrf52": {
@@ -191,6 +193,8 @@
       "id": "v6",
       "nombre": "NavaTastic V6",
       "base": "Meshtastic 2.8.0",
+      "estado": "Alpha",
+      "estable": false,
       "release": "https://github.com/EA2OY/NavaTasticV6/releases/tag/v6",
       "fecha": "2026-09-26",
       "nrf52": {

@@ -72,7 +72,7 @@ function rellenarVersiones() {
   for (const [id, v] of Object.entries(indice.versiones)) {
     const o = document.createElement('option');
     o.value = id;
-    o.textContent = v.nombre + ' (' + v.base + ')';
+    o.textContent = v.nombre + ' (' + v.base + ')' + (v.estado ? ' — ' + v.estado : '');
     sel.appendChild(o);
   }
   sel.value = indice.porDefecto || Object.keys(indice.versiones)[0];
@@ -119,7 +119,23 @@ function actualizarDetalle() {
   const v = s.version;
   $('versionFirmware').textContent = v.nombre + ' · ' + v.base;
   if ($('detalleVersion')) {
-    $('detalleVersion').textContent = v.nombre + ' · base ' + v.base + ' · publicada el ' + v.fecha + '.';
+    $('detalleVersion').textContent = v.nombre + ' · base ' + v.base + ' · ' + (v.estado ? v.estado + ' · ' : '') +
+      'publicada el ' + v.fecha + '.';
+  }
+  // Aviso cuando la versión elegida no es la estable (Alpha, Beta...).
+  // Manda el campo "estable" del índice, no el texto: así la etiqueta puede decir "Beta (estable)".
+  const aviso = $('avisoVersion');
+  if (aviso) {
+    if (v.estado && v.estable !== true) {
+      const estable = Object.values(indice.versiones || {}).find((x) => x.estable === true);
+      aviso.hidden = false;
+      aviso.innerHTML = '<b>' + v.nombre + ' (' + v.base + ') es una versión ' + v.estado + '.</b> ' +
+        'Todavía está en pruebas y puede dar problemas' +
+        (estable ? ': para el día a día elige <b>' + estable.nombre + '</b>, que es la versión estable.' : '.');
+    } else {
+      aviso.hidden = true;
+      aviso.textContent = '';
+    }
   }
   if (!s.principal) {
     $('detalleFichero').textContent = 'No hay fichero para esa combinación. Avisa de esto: es un fallo de la web.';

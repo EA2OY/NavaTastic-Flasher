@@ -72,6 +72,17 @@ legend { padding: 0 6px; color: var(--suave); font-size: 14px; }
 
 .detalle { margin: 12px 0 0; color: var(--suave); font-size: 14px; word-break: break-word; }
 
+.avisoVersion {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  background: #422006;
+  border: 1px solid #a16207;
+  border-radius: 8px;
+  color: #fde68a;
+  font-size: 14px;
+}
+.avisoVersion b { color: #fef3c7; }
+
 button {
   padding: 12px 20px;
   font-size: 16px;

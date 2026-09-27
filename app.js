@@ -443,10 +443,13 @@ async function flashearESP32(s, conservar) {
 // que no se hayan autorizado antes en este navegador no se pueden ver desde aquí.
 const VIDS_CARGADOR = [0x239a, 0x1915, 0x2fe3, 0x2886];
 
+// ¿Parece el cargador? Solo es una pista: el fabricante Adafruit (0x239a) lo usan TAMBIÉN las
+// placas cuando ejecutan la aplicación, así que ahí hay que mirar el identificador de producto.
+// La prueba de verdad es el saludo: si el nodo responde, está ejecutando el firmware.
 function esCargador(info) {
   if (!info) return false;
-  if (VIDS_CARGADOR.indexOf(info.usbVendorId) >= 0) return true;
-  return info.usbVendorId === VID_ADAFRUIT && PIDS_CARGADOR.indexOf(info.usbProductId) >= 0;
+  if (info.usbVendorId === VID_ADAFRUIT) return PIDS_CARGADOR.indexOf(info.usbProductId) >= 0;
+  return info.usbVendorId === 0x1915 || info.usbVendorId === 0x2fe3;
 }
 
 function describirPuerto(puerto) {
@@ -586,7 +589,8 @@ async function ordenarDFU(puerto) {
     const nodo = await leerNumeroDeNodo(puerto, 3000);
     consolaLinea(nodo
       ? '  nodo detectado: !' + nodo.toString(16).padStart(8, '0')
-      : '  no he podido leer el número de nodo (¿está el nodo dormido o sin el API por serie?)', 'propio');
+      : '  el nodo no ha respondido al saludo: o está dormido, o ese puerto es el del cargador ' +
+        '(si es el cargador, la unidad de disco ya debería estar montada), o tiene el API por serie desactivado.', 'propio');
     const admin = campoVarint(21, 1);
     const datos = [...campoVarint(1, 6), ...campoBytes(2, admin)];
     const paquete = [
@@ -635,8 +639,7 @@ async function modoGrabacionNRF52(s) {
   progreso(10, 'Elige el puerto del nodo…');
   const puerto = await puertoElegido();
   const info = puerto.getInfo ? puerto.getInfo() : null;
-  consolaLinea('Puerto elegido: ' + describirPuerto(puerto) +
-    (esCargador(info) ? ' (parece el cargador: el nodo ya estaba en modo grabación)' : ''), 'propio');
+  consolaLinea('Puerto elegido: ' + describirPuerto(puerto), 'propio');
   if (info && (info.usbVendorId === 0x303a || info.usbVendorId === 0x1a86 || info.usbVendorId === 0x10c4)) {
     consolaLinea('  aviso: ese puerto parece de una placa ESP32 o de un adaptador, no de un nRF52. ' +
       'Si has elegido el puerto equivocado, el toque no llegará al nodo.', 'avisoConsola');

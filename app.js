@@ -643,17 +643,6 @@ async function esperarCargador(segundos) {
   return false;
 }
 
-// Si el puerto del firmware ya no se puede abrir, es que el nodo se ha reiniciado.
-async function puertoSigueVivo(puerto) {
-  try {
-    await puerto.open({ baudRate: 115200 });
-    try { await puerto.close(); } catch (e) { /* da igual */ }
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
 async function modoGrabacionNRF52(s) {
   if (!soportaSerial) throw new Error('este navegador no puede mandar el nodo a modo grabación');
   progreso(10, 'Elige el puerto del nodo…');

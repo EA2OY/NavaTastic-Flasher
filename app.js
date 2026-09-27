@@ -438,11 +438,6 @@ async function flashearESP32(s, conservar) {
 
 // ---------- nRF52: modo grabación + copia manual del UF2 ----------
 // El cargador UF2 aparece con estos identificadores (familia Adafruit / Nordic).
-// El cargador UF2 aparece con estos identificadores (Adafruit 0x239a, Nordic 0x1915, Particle
-// 0x2fe3 y Seeed 0x2886, que es el de las placas Xiao y Seed). Solo es una pista: los puertos
-// que no se hayan autorizado antes en este navegador no se pueden ver desde aquí.
-const VIDS_CARGADOR = [0x239a, 0x1915, 0x2fe3, 0x2886];
-
 // ¿Parece el cargador? Solo es una pista: el fabricante Adafruit (0x239a) lo usan TAMBIÉN las
 // placas cuando ejecutan la aplicación, así que ahí hay que mirar el identificador de producto.
 // La prueba de verdad es el saludo: si el nodo responde, está ejecutando el firmware.

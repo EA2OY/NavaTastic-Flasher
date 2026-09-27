@@ -497,6 +497,55 @@ async function toque1200(puerto, intentos) {
   return false;
 }
 
+// --- Protocolo serie de Meshtastic: lo mínimo para mandar una orden al nodo ---
+// Trama: 0x94 0xC3, longitud (2 bytes, big-endian) y el mensaje ToRadio en protobuf.
+function varint(n) {
+  const b = [];
+  let v = n >>> 0;
+  while (v > 0x7f) { b.push((v & 0x7f) | 0x80); v >>>= 7; }
+  b.push(v);
+  return b;
+}
+function campoVarint(numero, valor) { return [...varint(numero << 3), ...varint(valor)]; }
+function campoBytes(numero, bytes) { return [...varint((numero << 3) | 2), ...varint(bytes.length), ...bytes]; }
+function marco(bytes) { return [0x94, 0xc3, (bytes.length >> 8) & 0xff, bytes.length & 0xff, ...bytes]; }
+
+// Orden de administración "entrar en modo DFU": AdminMessage.enter_dfu_mode_request es el campo
+// 21 (booleano), va dentro de Data con portnum ADMIN_APP (6). El firmware la atiende y llama a
+// enterDfuMode(), que es lo que hace el flasher oficial y no depende del sistema operativo.
+// Se manda a difusión con hop_limit 0: el propio nodo la procesa y no sale al aire.
+async function enviarOrdenDFU(puerto) {
+  await puerto.open({ baudRate: 115200 });
+  const escritor = puerto.writable.getWriter();
+  try {
+    const admin = campoVarint(21, 1);
+    const datos = [...campoVarint(1, 6), ...campoBytes(2, admin)];
+    const paquete = [
+      ...campoVarint(2, 0xffffffff), // to = difusión
+      ...campoBytes(4, datos),       // decoded = Data{ portnum, payload }
+      ...campoVarint(6, Math.floor(Math.random() * 0xfffffff) + 1), // id del paquete
+      ...campoVarint(9, 0),          // hop_limit = 0: no se retransmite
+    ];
+    const trama = marco(campoBytes(1, paquete)); // ToRadio{ packet }
+    await escritor.write(new Uint8Array(trama));
+    consolaLinea('  orden "entrar en modo DFU" enviada al nodo (' + trama.length + ' bytes).', 'propio');
+    await dormir(1200);
+  } finally {
+    try { escritor.releaseLock(); } catch (e) { /* da igual */ }
+    try { await puerto.close(); } catch (e) { /* el nodo puede estar reiniciándose */ }
+  }
+}
+
+// Espera a que aparezca el cargador entre los puertos ya autorizados (pista, no prueba).
+async function esperarCargador(segundos) {
+  const fin = Date.now() + segundos * 1000;
+  while (Date.now() < fin) {
+    if (await hayCargador()) return true;
+    await dormir(700);
+  }
+  return false;
+}
+
 async function modoGrabacionNRF52(s) {
   if (!soportaSerial) throw new Error('este navegador no puede mandar el nodo a modo grabación');
   progreso(10, 'Elige el puerto del nodo…');
@@ -508,9 +557,25 @@ async function modoGrabacionNRF52(s) {
     consolaLinea('  aviso: ese puerto parece de una placa ESP32 o de un adaptador, no de un nRF52. ' +
       'Si has elegido el puerto equivocado, el toque no llegará al nodo.', 'avisoConsola');
   }
-  progreso(40, 'Mandando el nodo a modo grabación…');
-  consolaEstado('Mandando el nodo a modo grabación…');
-  const entro = await toque1200(puerto, 3);
+  progreso(35, 'Pidiendo al nodo que entre en modo grabación…');
+  consolaEstado('Pidiendo al nodo que entre en modo grabación…');
+  // Primero la orden de administración por el cable (como el flasher oficial): funciona en
+  // cualquier nodo con firmware Meshtastic o NavaTastic y no depende del sistema operativo.
+  // Si no basta, se prueba el toque de 1200 bps.
+  let entro = false;
+  try {
+    await enviarOrdenDFU(puerto);
+    entro = await esperarCargador(6);
+    if (entro) consolaLinea('  el cargador ha aparecido tras la orden.', 'propio');
+    else consolaLinea('  el cargador no ha aparecido tras la orden.', 'propio');
+  } catch (e) {
+    consolaLinea('  no he podido mandar la orden por el cable: ' + ((e && e.message) || e), 'avisoConsola');
+  }
+  if (!entro) {
+    consolaLinea('Pruebo ahora el toque de 1200 bps.', 'propio');
+    progreso(60, 'Probando el toque de 1200 bps…');
+    entro = await toque1200(puerto, 2);
+  }
   progreso(80, entro ? 'Nodo en modo grabación.' : 'Descargando el fichero…');
   consolaEstado(entro ? 'Nodo en modo grabación' : 'Descargando el fichero');
   descargar();

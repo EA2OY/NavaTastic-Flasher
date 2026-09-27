@@ -438,7 +438,10 @@ async function flashearESP32(s, conservar) {
 
 // ---------- nRF52: modo grabación + copia manual del UF2 ----------
 // El cargador UF2 aparece con estos identificadores (familia Adafruit / Nordic).
-const VIDS_CARGADOR = [0x239a, 0x1915, 0x2fe3];
+// El cargador UF2 aparece con estos identificadores (Adafruit 0x239a, Nordic 0x1915, Particle
+// 0x2fe3 y Seeed 0x2886, que es el de las placas Xiao y Seed). Solo es una pista: los puertos
+// que no se hayan autorizado antes en este navegador no se pueden ver desde aquí.
+const VIDS_CARGADOR = [0x239a, 0x1915, 0x2fe3, 0x2886];
 
 function esCargador(info) {
   if (!info) return false;
@@ -509,30 +512,111 @@ function varint(n) {
 function campoVarint(numero, valor) { return [...varint(numero << 3), ...varint(valor)]; }
 function campoBytes(numero, bytes) { return [...varint((numero << 3) | 2), ...varint(bytes.length), ...bytes]; }
 function marco(bytes) { return [0x94, 0xc3, (bytes.length >> 8) & 0xff, bytes.length & 0xff, ...bytes]; }
+function leerVarint(b, i) { let r = 0, s = 0, x; do { x = b[i++]; r |= (x & 0x7f) << s; s += 7; } while (x & 0x80); return [r >>> 0, i]; }
 
-// Orden de administración "entrar en modo DFU": AdminMessage.enter_dfu_mode_request es el campo
-// 21 (booleano), va dentro de Data con portnum ADMIN_APP (6). El firmware la atiende y llama a
-// enterDfuMode(), que es lo que hace el flasher oficial y no depende del sistema operativo.
-// Se manda a difusión con hop_limit 0: el propio nodo la procesa y no sale al aire.
-async function enviarOrdenDFU(puerto) {
-  await puerto.open({ baudRate: 115200 });
+// Del mensaje FromRadio saca my_info.my_node_num (campo 3 del FromRadio -> campo 1 del MyNodeInfo).
+function buscarNumeroDeNodo(bytes) {
+  let i = 0;
+  while (i < bytes.length) {
+    let tag; [tag, i] = leerVarint(bytes, i);
+    const num = tag >>> 3, tipo = tag & 7;
+    if (tipo === 0) { let v; [v, i] = leerVarint(bytes, i); continue; }
+    if (tipo !== 2) break;
+    let len; [len, i] = leerVarint(bytes, i);
+    const cuerpo = bytes.slice(i, i + len);
+    i += len;
+    if (num === 3) { // my_info
+      let j = 0;
+      while (j < cuerpo.length) {
+        let t2; [t2, j] = leerVarint(cuerpo, j);
+        const n2 = t2 >>> 3, ti2 = t2 & 7;
+        if (ti2 === 0) { let v2; [v2, j] = leerVarint(cuerpo, j); if (n2 === 1) return v2; }
+        else if (ti2 === 2) { let l2; [l2, j] = leerVarint(cuerpo, j); j += l2; }
+        else break;
+      }
+    }
+  }
+  return 0;
+}
+
+// Lee del puerto hasta encontrar el número de nodo (0 si no lo consigue).
+async function leerNumeroDeNodo(puerto, ms) {
+  const lector = puerto.readable.getReader();
   const escritor = puerto.writable.getWriter();
+  let buffer = [];
+  let nodo = 0;
   try {
+    await escritor.write(new Uint8Array(marco(campoVarint(3, Math.floor(Math.random() * 0xfffffff) + 1))));
+    const fin = Date.now() + ms;
+    while (Date.now() < fin && !nodo) {
+      const r = await Promise.race([lector.read(), dormir(300).then(() => null)]);
+      if (!r) continue;
+      if (r.done) break;
+      if (r.value) for (const b of r.value) buffer.push(b);
+      for (;;) {
+        let i = -1;
+        for (let k = 0; k + 1 < buffer.length; k++) if (buffer[k] === 0x94 && buffer[k + 1] === 0xc3) { i = k; break; }
+        if (i < 0 || buffer.length < i + 4) { if (i > 0) buffer = buffer.slice(i); break; }
+        const len = (buffer[i + 2] << 8) | buffer[i + 3];
+        if (len > 4096) { buffer = buffer.slice(i + 1); continue; } // no es una trama de verdad
+        if (buffer.length < i + 4 + len) { if (i > 0) buffer = buffer.slice(i); break; }
+        const carga = buffer.slice(i + 4, i + 4 + len);
+        buffer = buffer.slice(i + 4 + len);
+        const n = buscarNumeroDeNodo(carga);
+        if (n) { nodo = n; break; }
+      }
+      if (buffer.length > 8192) buffer = buffer.slice(-2048);
+    }
+  } catch (e) {
+    consolaLinea('  (no he podido leer la respuesta del nodo: ' + ((e && e.message) || e) + ')', 'avisoConsola');
+  } finally {
+    try { escritor.releaseLock(); } catch (e) { /* da igual */ }
+    try { await lector.cancel(); } catch (e) { /* da igual */ }
+  }
+  return nodo;
+}
+
+// Pide al nodo que entre en modo DFU. Es lo que hace el flasher oficial: AdminMessage campo 21
+// (enter_dfu_mode_request) dentro de Data con portnum ADMIN_APP (6), dirigido AL PROPIO NODO
+// (no a difusión), con hop_limit 0 para que no salga al aire. Antes se saluda para saber el
+// número de nodo, porque la orden tiene que ir dirigida a él.
+async function ordenarDFU(puerto) {
+  await puerto.open({ baudRate: 115200 });
+  try {
+    const nodo = await leerNumeroDeNodo(puerto, 3000);
+    consolaLinea(nodo
+      ? '  nodo detectado: !' + nodo.toString(16).padStart(8, '0')
+      : '  no he podido leer el número de nodo (¿está el nodo dormido o sin el API por serie?)', 'propio');
     const admin = campoVarint(21, 1);
     const datos = [...campoVarint(1, 6), ...campoBytes(2, admin)];
     const paquete = [
-      ...campoVarint(2, 0xffffffff), // to = difusión
-      ...campoBytes(4, datos),       // decoded = Data{ portnum, payload }
+      ...campoVarint(2, nodo || 0xffffffff), // al propio nodo (o difusión si no lo sabemos)
+      ...campoBytes(4, datos),               // decoded = Data{ portnum, payload }
       ...campoVarint(6, Math.floor(Math.random() * 0xfffffff) + 1), // id del paquete
-      ...campoVarint(9, 0),          // hop_limit = 0: no se retransmite
+      ...campoVarint(9, 0),                  // hop_limit = 0: no se retransmite
     ];
     const trama = marco(campoBytes(1, paquete)); // ToRadio{ packet }
-    await escritor.write(new Uint8Array(trama));
-    consolaLinea('  orden "entrar en modo DFU" enviada al nodo (' + trama.length + ' bytes).', 'propio');
-    await dormir(1200);
+    const escritor = puerto.writable.getWriter();
+    try {
+      await escritor.write(new Uint8Array(trama));
+      consolaLinea('  orden "entrar en modo DFU" enviada (' + trama.length + ' bytes).', 'propio');
+    } finally {
+      try { escritor.releaseLock(); } catch (e) { /* da igual */ }
+    }
+    await dormir(1500);
   } finally {
-    try { escritor.releaseLock(); } catch (e) { /* da igual */ }
     try { await puerto.close(); } catch (e) { /* el nodo puede estar reiniciándose */ }
+  }
+}
+
+// Si el puerto del firmware ya no se puede abrir, es que el nodo se ha reiniciado.
+async function puertoSigueVivo(puerto) {
+  try {
+    await puerto.open({ baudRate: 115200 });
+    try { await puerto.close(); } catch (e) { /* da igual */ }
+    return true;
+  } catch (e) {
+    return false;
   }
 }
 
@@ -564,10 +648,13 @@ async function modoGrabacionNRF52(s) {
   // Si no basta, se prueba el toque de 1200 bps.
   let entro = false;
   try {
-    await enviarOrdenDFU(puerto);
-    entro = await esperarCargador(6);
-    if (entro) consolaLinea('  el cargador ha aparecido tras la orden.', 'propio');
-    else consolaLinea('  el cargador no ha aparecido tras la orden.', 'propio');
+    await ordenarDFU(puerto);
+    entro = await esperarCargador(4);
+    if (!entro && !(await puertoSigueVivo(puerto))) {
+      entro = true;
+      consolaLinea('  el puerto del nodo ha desaparecido: se está reiniciando.', 'propio');
+    }
+    consolaLinea(entro ? '  el nodo ha aceptado la orden.' : '  el nodo sigue ahí: la orden no ha surtido efecto.', 'propio');
   } catch (e) {
     consolaLinea('  no he podido mandar la orden por el cable: ' + ((e && e.message) || e), 'avisoConsola');
   }

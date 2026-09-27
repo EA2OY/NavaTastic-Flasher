@@ -6,6 +6,7 @@
       "base": "Meshtastic 2.7.26",
       "estado": "Beta (estable)",
       "estable": true,
+      "aviso": "",
       "release": "https://github.com/EA2OY/NavaTastic/releases/tag/v5.3.1",
       "fecha": "2026-09-26",
       "nrf52": {
@@ -195,6 +196,7 @@
       "base": "Meshtastic 2.8.0",
       "estado": "Alpha",
       "estable": false,
+      "aviso": "En esta version todavia NO funciona la resiliencia de dormir/despertar de NavaTastic. No se recomienda para desplegar en routers: de momento, solo para cacharreo.",
       "release": "https://github.com/EA2OY/NavaTasticV6/releases/tag/v6",
       "fecha": "2026-09-26",
       "nrf52": {

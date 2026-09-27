@@ -131,7 +131,8 @@ function actualizarDetalle() {
       aviso.hidden = false;
       aviso.innerHTML = '<b>' + v.nombre + ' (' + v.base + ') es una versión ' + v.estado + '.</b> ' +
         'Todavía está en pruebas y puede dar problemas' +
-        (estable ? ': para el día a día elige <b>' + estable.nombre + '</b>, que es la versión estable.' : '.');
+        (estable ? ': para el día a día elige <b>' + estable.nombre + '</b>, que es la versión estable.' : '.') +
+        (v.aviso ? '<br><b>Aviso importante:</b> ' + v.aviso : '');
     } else {
       aviso.hidden = true;
       aviso.textContent = '';

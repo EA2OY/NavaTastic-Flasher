@@ -514,41 +514,47 @@ function campoBytes(numero, bytes) { return [...varint((numero << 3) | 2), ...va
 function marco(bytes) { return [0x94, 0xc3, (bytes.length >> 8) & 0xff, bytes.length & 0xff, ...bytes]; }
 function leerVarint(b, i) { let r = 0, s = 0, x; do { x = b[i++]; r |= (x & 0x7f) << s; s += 7; } while (x & 0x80); return [r >>> 0, i]; }
 
-// Del mensaje FromRadio saca my_info.my_node_num (campo 3 del FromRadio -> campo 1 del MyNodeInfo).
-function buscarNumeroDeNodo(bytes) {
+// Del mensaje FromRadio saca el número de nodo (my_info, campo 3 -> campo 1) y si el nodo ha
+// terminado de enviar su configuración (config_complete_id, campo 7). Lo segundo importa: la
+// librería oficial espera a que termine antes de mandar órdenes, y parece que el nodo ignora
+// lo que le llega mientras está enviando la configuración.
+function analizarFromRadio(bytes, estado) {
   let i = 0;
   while (i < bytes.length) {
     let tag; [tag, i] = leerVarint(bytes, i);
     const num = tag >>> 3, tipo = tag & 7;
-    if (tipo === 0) { let v; [v, i] = leerVarint(bytes, i); continue; }
+    if (tipo === 0) {
+      let v; [v, i] = leerVarint(bytes, i);
+      if (num === 7) estado.completo = true; // config_complete_id
+      continue;
+    }
     if (tipo !== 2) break;
     let len; [len, i] = leerVarint(bytes, i);
     const cuerpo = bytes.slice(i, i + len);
     i += len;
-    if (num === 3) { // my_info
+    if (num === 3 && !estado.nodo) { // my_info
       let j = 0;
       while (j < cuerpo.length) {
         let t2; [t2, j] = leerVarint(cuerpo, j);
         const n2 = t2 >>> 3, ti2 = t2 & 7;
-        if (ti2 === 0) { let v2; [v2, j] = leerVarint(cuerpo, j); if (n2 === 1) return v2; }
+        if (ti2 === 0) { let v2; [v2, j] = leerVarint(cuerpo, j); if (n2 === 1) { estado.nodo = v2; break; } }
         else if (ti2 === 2) { let l2; [l2, j] = leerVarint(cuerpo, j); j += l2; }
         else break;
       }
     }
   }
-  return 0;
 }
 
-// Lee del puerto hasta encontrar el número de nodo (0 si no lo consigue).
-async function leerNumeroDeNodo(puerto, ms) {
+// Saluda al nodo y espera a que termine de enviar su configuración.
+async function leerEstadoNodo(puerto, ms) {
+  const estado = { nodo: 0, completo: false };
   const lector = puerto.readable.getReader();
   const escritor = puerto.writable.getWriter();
   let buffer = [];
-  let nodo = 0;
   try {
     await escritor.write(new Uint8Array(marco(campoVarint(3, Math.floor(Math.random() * 0xfffffff) + 1))));
     const fin = Date.now() + ms;
-    while (Date.now() < fin && !nodo) {
+    while (Date.now() < fin && !(estado.nodo && estado.completo)) {
       const r = await Promise.race([lector.read(), dormir(300).then(() => null)]);
       if (!r) continue;
       if (r.done) break;
@@ -562,8 +568,7 @@ async function leerNumeroDeNodo(puerto, ms) {
         if (buffer.length < i + 4 + len) { if (i > 0) buffer = buffer.slice(i); break; }
         const carga = buffer.slice(i + 4, i + 4 + len);
         buffer = buffer.slice(i + 4 + len);
-        const n = buscarNumeroDeNodo(carga);
-        if (n) { nodo = n; break; }
+        analizarFromRadio(carga, estado);
       }
       if (buffer.length > 8192) buffer = buffer.slice(-2048);
     }
@@ -573,7 +578,7 @@ async function leerNumeroDeNodo(puerto, ms) {
     try { escritor.releaseLock(); } catch (e) { /* da igual */ }
     try { await lector.cancel(); } catch (e) { /* da igual */ }
   }
-  return nodo;
+  return estado;
 }
 
 // Pide al nodo que entre en modo DFU. Es lo que hace el flasher oficial: AdminMessage campo 21
@@ -583,11 +588,15 @@ async function leerNumeroDeNodo(puerto, ms) {
 async function ordenarDFU(puerto) {
   await puerto.open({ baudRate: 115200 });
   try {
-    const nodo = await leerNumeroDeNodo(puerto, 3000);
+    const estado = await leerEstadoNodo(puerto, 12000);
+    const nodo = estado.nodo;
     consolaLinea(nodo
       ? '  nodo detectado: !' + nodo.toString(16).padStart(8, '0')
       : '  el nodo no ha respondido al saludo: o está dormido, o ese puerto es el del cargador ' +
         '(si es el cargador, la unidad de disco ya debería estar montada), o tiene el API por serie desactivado.', 'propio');
+    consolaLinea(estado.completo
+      ? '  el nodo ha terminado de enviar su configuración.'
+      : '  (no ha terminado de enviar su configuración; mando la orden de todos modos)', 'propio');
     const admin = campoVarint(21, 1);
     const datos = [
       ...campoVarint(1, 6),     // portnum = ADMIN_APP

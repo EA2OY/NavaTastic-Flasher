@@ -587,18 +587,36 @@ async function ordenarDFU(puerto) {
       : '  el nodo no ha respondido al saludo: o está dormido, o ese puerto es el del cargador ' +
         '(si es el cargador, la unidad de disco ya debería estar montada), o tiene el API por serie desactivado.', 'propio');
     const admin = campoVarint(21, 1);
-    const datos = [...campoVarint(1, 6), ...campoBytes(2, admin)];
+    const datos = [
+      ...campoVarint(1, 6),     // portnum = ADMIN_APP
+      ...campoBytes(2, admin),  // payload = AdminMessage
+      ...campoVarint(3, 1),     // want_response = true (la libreria oficial lo pone)
+    ];
     const paquete = [
-      ...campoVarint(2, nodo || 0xffffffff), // al propio nodo (o difusión si no lo sabemos)
-      ...campoBytes(4, datos),               // decoded = Data{ portnum, payload }
+      ...campoVarint(1, nodo || 0),          // from = el propio nodo (como el oficial)
+      ...campoVarint(2, nodo || 0xffffffff), // to = el propio nodo (o difusion si no lo sabemos)
+      ...campoBytes(4, datos),               // decoded = Data{ portnum, payload, want_response }
       ...campoVarint(6, Math.floor(Math.random() * 0xfffffff) + 1), // id del paquete
       ...campoVarint(9, 0),                  // hop_limit = 0: no se retransmite
+      ...campoVarint(10, 1),                 // want_ack = true (como el oficial)
     ];
     const trama = marco(campoBytes(1, paquete)); // ToRadio{ packet }
     const escritor = puerto.writable.getWriter();
     try {
-      await escritor.write(new Uint8Array(trama));
-      consolaLinea('  orden "entrar en modo DFU" enviada (' + trama.length + ' bytes).', 'propio');
+      // Se manda dos veces: mientras el nodo esta enviando su configuracion, el primer paquete
+      // puede perderse, y repetirlo no hace dano.
+      for (let n = 1; n <= 2; n++) {
+        await escritor.write(new Uint8Array(marco(campoBytes(1, [
+          ...campoVarint(1, nodo || 0),
+          ...campoVarint(2, nodo || 0xffffffff),
+          ...campoBytes(4, datos),
+          ...campoVarint(6, Math.floor(Math.random() * 0xfffffff) + 1),
+          ...campoVarint(9, 0),
+          ...campoVarint(10, 1),
+        ]))));
+        consolaLinea('  orden "entrar en modo DFU" enviada (' + trama.length + ' bytes, vez ' + n + ' de 2).', 'propio');
+        await dormir(1500);
+      }
     } finally {
       try { escritor.releaseLock(); } catch (e) { /* da igual */ }
     }

@@ -347,8 +347,10 @@ async function flashear(conservar) {
   $('btnFlashear').disabled = true;
   $('btnSinBorrar').disabled = true;
   consolaEstado('Trabajando…');
-  consolaLinea('== ' + s.version.nombre + ' (' + s.version.base + '): ' +
-    (conservar ? 'actualizar sin borrar' : 'borrado completo + instalar') +
+  const modo = s.familia === 'esp32'
+    ? (conservar ? 'actualizar sin borrar' : 'borrado completo + instalar')
+    : 'poner en modo grabación';
+  consolaLinea('== ' + s.version.nombre + ' (' + s.version.base + '): ' + modo +
     ' — ' + s.principal.nombre + ' ==', 'propio');
   try {
     if (s.familia === 'esp32') await flashearESP32(s, conservar);
@@ -592,28 +594,22 @@ async function ordenarDFU(puerto) {
       ...campoBytes(2, admin),  // payload = AdminMessage
       ...campoVarint(3, 1),     // want_response = true (la libreria oficial lo pone)
     ];
-    const paquete = [
-      ...campoVarint(1, nodo || 0),          // from = el propio nodo (como el oficial)
-      ...campoVarint(2, nodo || 0xffffffff), // to = el propio nodo (o difusion si no lo sabemos)
-      ...campoBytes(4, datos),               // decoded = Data{ portnum, payload, want_response }
-      ...campoVarint(6, Math.floor(Math.random() * 0xfffffff) + 1), // id del paquete
-      ...campoVarint(9, 0),                  // hop_limit = 0: no se retransmite
-      ...campoVarint(10, 1),                 // want_ack = true (como el oficial)
-    ];
-    const trama = marco(campoBytes(1, paquete)); // ToRadio{ packet }
+    // Igual que la libreria oficial: from y to el propio nodo, want_ack, y SIN hop_limit
+    // (va dirigido al propio nodo, asi que no sale al aire de todos modos).
+    const construir = () => marco(campoBytes(1, [
+      ...campoVarint(1, nodo || 0),
+      ...campoVarint(2, nodo || 0xffffffff),
+      ...campoBytes(4, datos),
+      ...campoVarint(6, Math.floor(Math.random() * 0xfffffff) + 1),
+      ...campoVarint(10, 1),
+    ]));
     const escritor = puerto.writable.getWriter();
     try {
       // Se manda dos veces: mientras el nodo esta enviando su configuracion, el primer paquete
       // puede perderse, y repetirlo no hace dano.
       for (let n = 1; n <= 2; n++) {
-        await escritor.write(new Uint8Array(marco(campoBytes(1, [
-          ...campoVarint(1, nodo || 0),
-          ...campoVarint(2, nodo || 0xffffffff),
-          ...campoBytes(4, datos),
-          ...campoVarint(6, Math.floor(Math.random() * 0xfffffff) + 1),
-          ...campoVarint(9, 0),
-          ...campoVarint(10, 1),
-        ]))));
+        const trama = construir();
+        await escritor.write(new Uint8Array(trama));
         consolaLinea('  orden "entrar en modo DFU" enviada (' + trama.length + ' bytes, vez ' + n + ' de 2).', 'propio');
         await dormir(1500);
       }
@@ -696,11 +692,14 @@ async function modoGrabacionNRF52(s) {
     consolaLinea('  no he podido mandar la orden por el cable: ' + ((e && e.message) || e), 'avisoConsola');
   }
   if (!entro) {
-    consolaLinea('Pruebo el toque de 1200 bps.', 'propio');
-    progreso(60, 'Probando el toque de 1200 bps…');
-    if (await toque1200(puerto, 2)) entro = true;
+    // OJO: aqui NO se usa el toque de 1200 bps. En las placas nRF llama a enterSerialDfu(), que
+    // entra en el modo DFU POR SERIE y ese modo NO monta unidad de disco (comprobado en el core
+    // de Adafruit: TinyUSB_Port_EnterDFU -> enterSerialDfu). Solo la orden de administracion
+    // llama a enterUf2Dfu(), que es el modo que monta la unidad. Por eso el flasher oficial
+    // tampoco usa el toque en estas placas.
+    consolaLinea('La orden no ha surtido efecto. No uso el toque de 1200 bps: en estas placas ' +
+      'entra en un modo de cargador que no monta la unidad de disco.', 'avisoConsola');
   }
-  if (!entro) consolaLinea('Ni la orden ni el toque han surtido efecto: habrá que entrar en modo grabación a mano.', 'avisoConsola');
   progreso(80, entro ? 'Nodo en modo grabación.' : 'Descargando el fichero…');
   consolaEstado(entro ? 'Nodo en modo grabación' : 'Descargando el fichero');
   descargar();

@@ -647,6 +647,17 @@ async function esperarCargador(segundos) {
   return false;
 }
 
+// Si el puerto del firmware ya no se puede abrir, es que el nodo se ha reiniciado.
+async function puertoSigueVivo(puerto) {
+  try {
+    await puerto.open({ baudRate: 115200 });
+    try { await puerto.close(); } catch (e) { /* da igual */ }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 async function modoGrabacionNRF52(s) {
   if (!soportaSerial) throw new Error('este navegador no puede mandar el nodo a modo grabación');
   progreso(10, 'Elige el puerto del nodo…');
@@ -663,18 +674,32 @@ async function modoGrabacionNRF52(s) {
   // cualquier nodo con firmware Meshtastic o NavaTastic y no depende del sistema operativo.
   // Si no basta, se prueba el toque de 1200 bps.
   let entro = false;
+  let reiniciado = false;
   try {
     await ordenarDFU(puerto);
-    entro = await esperarCargador(4);
-    consolaLinea(entro ? '  ha aparecido un puerto de cargador.' : '  con la orden no ha aparecido ningún cargador.', 'propio');
+    entro = await esperarCargador(3);
+    if (!entro) {
+      // La prueba de verdad: si el puerto del firmware ya no se puede abrir, es que se ha
+      // reiniciado en modo grabación y está montando la unidad. Entonces NO hay que tocarle
+      // nada más (abrir el puerto del cargador recién nacido puede impedir que monte la unidad).
+      reiniciado = !(await puertoSigueVivo(puerto));
+      if (reiniciado) {
+        entro = true;
+        consolaLinea('  el puerto del firmware ha desaparecido: el nodo se está reiniciando en modo grabación.', 'propio');
+        consolaLinea('  espero unos segundos a que monte la unidad de disco…', 'propio');
+        await dormir(6000);
+      } else {
+        consolaLinea('  el nodo sigue respondiendo: la orden no ha surtido efecto.', 'propio');
+      }
+    }
   } catch (e) {
     consolaLinea('  no he podido mandar la orden por el cable: ' + ((e && e.message) || e), 'avisoConsola');
   }
-  // El toque se prueba SIEMPRE, aunque la orden parezca haber ido bien: es barato, es el camino
-  // que trae el firmware de fábrica y, si el nodo ya estuviera en modo grabación, no estorba.
-  consolaLinea(entro ? 'Refuerzo con el toque de 1200 bps.' : 'Pruebo el toque de 1200 bps.', 'propio');
-  progreso(60, 'Probando el toque de 1200 bps…');
-  if (await toque1200(puerto, 2)) entro = true;
+  if (!entro) {
+    consolaLinea('Pruebo el toque de 1200 bps.', 'propio');
+    progreso(60, 'Probando el toque de 1200 bps…');
+    if (await toque1200(puerto, 2)) entro = true;
+  }
   if (!entro) consolaLinea('Ni la orden ni el toque han surtido efecto: habrá que entrar en modo grabación a mano.', 'avisoConsola');
   progreso(80, entro ? 'Nodo en modo grabación.' : 'Descargando el fichero…');
   consolaEstado(entro ? 'Nodo en modo grabación' : 'Descargando el fichero');
@@ -682,7 +707,9 @@ async function modoGrabacionNRF52(s) {
   $('resultado').innerHTML = entro
     ? '<span class="ok">Nodo en modo grabación.</span> En tu ordenador: 1) busca la unidad nueva que ha aparecido; ' +
       '2) copia dentro el fichero <b>' + s.principal.nombre + '</b> (está en Descargas); 3) espera unos segundos: ' +
-      'el nodo se reinicia solo y la unidad desaparece. Si no desaparece, <b>expúlsala</b> desde el sistema.'
+      'el nodo se reinicia solo y la unidad desaparece. Si no desaparece, <b>expúlsala</b> desde el sistema.<br>' +
+      '<span class="sub">Si en unos diez segundos no aparece ninguna unidad nueva, haz <b>doble toque rápido al ' +
+      'botón RESET</b> del nodo: a Windows no siempre le da tiempo a montarla sola.</span>'
     : '<span class="ok">Fichero descargado.</span> El nodo no ha entrado en modo grabación por sí solo. Prueba, en ' +
       'este orden: 1) <b>doble toque rápido al botón RESET</b> del nodo; 2) si no aparece la unidad, mantén pulsado ' +
       '<b>RESET</b> mientras conectas el cable y suéltalo al aparecer; 3) en última instancia, manda desde la app la ' +

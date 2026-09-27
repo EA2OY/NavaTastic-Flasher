@@ -437,47 +437,93 @@ async function flashearESP32(s, conservar) {
 }
 
 // ---------- nRF52: modo grabación + copia manual del UF2 ----------
+// El cargador UF2 aparece con estos identificadores (familia Adafruit / Nordic).
+const VIDS_CARGADOR = [0x239a, 0x1915, 0x2fe3];
+
+function esCargador(info) {
+  if (!info) return false;
+  if (VIDS_CARGADOR.indexOf(info.usbVendorId) >= 0) return true;
+  return info.usbVendorId === VID_ADAFRUIT && PIDS_CARGADOR.indexOf(info.usbProductId) >= 0;
+}
+
+function describirPuerto(puerto) {
+  const i = (puerto && puerto.getInfo && puerto.getInfo()) || {};
+  const hex = (v) => (v === undefined ? '?' : '0x' + v.toString(16).padStart(4, '0'));
+  return hex(i.usbVendorId) + ':' + hex(i.usbProductId);
+}
+
+// ¿Hay entre los puertos ya autorizados alguno que parezca el cargador? (Solo se ven los que
+// el usuario ha autorizado alguna vez en este navegador, así que sirve de pista, no de prueba.)
+async function hayCargador() {
+  if (!navigator.serial.getPorts) return false;
+  try {
+    const puertos = await navigator.serial.getPorts();
+    return puertos.some((p) => esCargador(p.getInfo ? p.getInfo() : null));
+  } catch (e) {
+    return false;
+  }
+}
+
+// Toque de 1200 bps. El core de Adafruit entra al cargador cuando DTR pasa a falso CON la
+// velocidad puesta en 1200, así que aquí se suelta DTR a propósito en vez de confiar en que
+// el sistema lo haga solo al cerrar el puerto (que es lo que fallaba).
+async function toque1200(puerto, intentos) {
+  for (let n = 1; n <= intentos; n++) {
+    consolaLinea('Intento ' + n + ' de ' + intentos + ': abro el puerto a 1200 bps…', 'propio');
+    try {
+      await puerto.open({ baudRate: 1200 });
+    } catch (e) {
+      consolaLinea('  no he podido abrir el puerto: ' + ((e && e.message) || e) +
+        '. ¿Lo tiene abierto otro programa (la app de Meshtastic, el monitor serie…)?', 'avisoConsola');
+      await dormir(1500);
+      continue;
+    }
+    await dormir(800);
+    try {
+      await puerto.setSignals({ dataTerminalReady: false, requestToSend: false });
+      consolaLinea('  DTR soltado a propósito: es exactamente lo que espera el cargador.', 'propio');
+    } catch (e) {
+      consolaLinea('  este navegador no deja soltar DTR; cierro el puerto y confío en el sistema.', 'avisoConsola');
+    }
+    await dormir(200);
+    try { await puerto.close(); } catch (e) { /* si la placa ya se reinició, cerrar puede fallar */ }
+    await dormir(1500);
+    if (await hayCargador()) {
+      consolaLinea('  el cargador ha aparecido: el nodo está en modo grabación.', 'propio');
+      return true;
+    }
+    consolaLinea('  todavía no ha aparecido; vuelvo a intentarlo.', 'propio');
+  }
+  return false;
+}
+
 async function modoGrabacionNRF52(s) {
   if (!soportaSerial) throw new Error('este navegador no puede mandar el nodo a modo grabación');
   progreso(10, 'Elige el puerto del nodo…');
   const puerto = await puertoElegido();
-  progreso(40, 'Mandando el nodo a modo grabación…');
-  // El truco: abrir el puerto a 1200 bps y cerrarlo. El firmware lo interpreta como
-  // "reinicia en modo grabación". Hay que darle tiempo a verlo antes de cerrar.
-  try {
-    await puerto.open({ baudRate: 1200 });
-    await dormir(500);
-  } finally {
-    try { await puerto.close(); } catch (e) { /* si la placa ya se reinició, cerrar puede fallar */ }
+  const info = puerto.getInfo ? puerto.getInfo() : null;
+  consolaLinea('Puerto elegido: ' + describirPuerto(puerto) +
+    (esCargador(info) ? ' (parece el cargador: el nodo ya estaba en modo grabación)' : ''), 'propio');
+  if (info && (info.usbVendorId === 0x303a || info.usbVendorId === 0x1a86 || info.usbVendorId === 0x10c4)) {
+    consolaLinea('  aviso: ese puerto parece de una placa ESP32 o de un adaptador, no de un nRF52. ' +
+      'Si has elegido el puerto equivocado, el toque no llegará al nodo.', 'avisoConsola');
   }
-  const detectado = await esperarCargador();
-  progreso(80, detectado ? 'Nodo en modo grabación.' : 'Descargando el fichero…');
+  progreso(40, 'Mandando el nodo a modo grabación…');
+  consolaEstado('Mandando el nodo a modo grabación…');
+  const entro = await toque1200(puerto, 3);
+  progreso(80, entro ? 'Nodo en modo grabación.' : 'Descargando el fichero…');
+  consolaEstado(entro ? 'Nodo en modo grabación' : 'Descargando el fichero');
   descargar();
-  $('resultado').innerHTML = detectado
+  $('resultado').innerHTML = entro
     ? '<span class="ok">Nodo en modo grabación.</span> En tu ordenador: 1) busca la unidad nueva que ha aparecido; ' +
       '2) copia dentro el fichero <b>' + s.principal.nombre + '</b> (está en Descargas); 3) espera unos segundos: ' +
       'el nodo se reinicia solo y la unidad desaparece. Si no desaparece, <b>expúlsala</b> desde el sistema.'
-    : '<span class="ok">Fichero descargado.</span> Si no ha aparecido ninguna unidad nueva, haz <b>doble toque ' +
-      'rápido al botón RESET</b> del nodo (o desconéctalo y vuelve a conectarlo) hasta que aparezca, y copia dentro ' +
-      'el fichero <b>' + s.principal.nombre + '</b>. Después, si la unidad no desaparece sola, <b>expúlsala</b> ' +
-      'desde el sistema.';
-}
-
-// Mira si el cargador UF2 ya está en el aire (la placa se ha reiniciado en modo grabación).
-async function esperarCargador(intentos = 10, espera = 700) {
-  if (!navigator.serial.getPorts) return false;
-  for (let i = 0; i < intentos; i++) {
-    await dormir(espera);
-    try {
-      const puertos = await navigator.serial.getPorts();
-      const hay = puertos.some((p) => {
-        const i = p.getInfo ? p.getInfo() : {};
-        return i.usbVendorId === VID_ADAFRUIT && PIDS_CARGADOR.includes(i.usbProductId);
-      });
-      if (hay) return true;
-    } catch (e) { /* seguimos intentando */ }
-  }
-  return false;
+    : '<span class="ok">Fichero descargado.</span> El nodo no ha entrado en modo grabación por sí solo. Prueba, en ' +
+      'este orden: 1) <b>doble toque rápido al botón RESET</b> del nodo; 2) si no aparece la unidad, mantén pulsado ' +
+      '<b>RESET</b> mientras conectas el cable y suéltalo al aparecer; 3) en última instancia, manda desde la app la ' +
+      'orden de administración para entrar en modo DFU (el firmware la admite) o usa el cable con la utilidad de ' +
+      'Nordic. Cuando aparezca la unidad, copia dentro el fichero <b>' + s.principal.nombre + '</b> (está en ' +
+      'Descargas) y, si no desaparece sola, <b>expúlsala</b> desde el sistema.';
 }
 
 // ---------- descarga directa ----------

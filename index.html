@@ -92,9 +92,11 @@
         faltarle el controlador del chip de serie (CP210x o CH34x).</li>
       <li><b>ESP32 (Heltec V3 y V4):</b> si no arranca o se queda en &laquo;waiting to download&raquo;, pulsa
         <b>RESET</b>. Si sigue igual, manten pulsado <b>BOOT</b> mientras conectas el cable y repite.</li>
-      <li><b>nRF52 (Promicro, Faketec, Seed, T114, Xiao):</b> el flasher pone el nodo en modo grabacion y te da el
-        fichero; solo tienes que copiarlo a la unidad que aparece en el ordenador. Si esa unidad no desaparece sola
-        al terminar, <b>expulsala</b> desde el sistema: desenchufar el cable no siempre la saca del modo grabacion.</li>
+      <li><b>nRF52 (Promicro, Faketec, Seed, T114, Xiao):</b> el flasher manda el nodo a modo grabacion (toque de
+        1200 bps) y te da el fichero; solo tienes que copiarlo a la unidad que aparece en el ordenador. Si esa
+        unidad no desaparece sola al terminar, <b>expulsala</b> desde el sistema: desenchufar el cable no siempre la
+        saca del modo grabacion. Y si la unidad <b>no aparece</b>: doble toque rapido al <b>RESET</b>, o manten
+        pulsado <b>RESET</b> mientras conectas el cable y sueltalo cuando aparezca.</li>
       <li><b>Se queda a medias:</b> repite la grabacion las veces que haga falta. No se estropea nada por repetir.</li>
       <li><b>Mensajes raros al copiar el fichero</b> (&laquo;error de escritura&raquo;, &laquo;dispositivo expulsado&raquo;):
         son normales, el nodo se esta reiniciando.</li>

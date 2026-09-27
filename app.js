@@ -648,19 +648,16 @@ async function modoGrabacionNRF52(s) {
   try {
     await ordenarDFU(puerto);
     entro = await esperarCargador(4);
-    if (!entro && !(await puertoSigueVivo(puerto))) {
-      entro = true;
-      consolaLinea('  el puerto del nodo ha desaparecido: se está reiniciando.', 'propio');
-    }
-    consolaLinea(entro ? '  el nodo ha aceptado la orden.' : '  el nodo sigue ahí: la orden no ha surtido efecto.', 'propio');
+    consolaLinea(entro ? '  ha aparecido un puerto de cargador.' : '  con la orden no ha aparecido ningún cargador.', 'propio');
   } catch (e) {
     consolaLinea('  no he podido mandar la orden por el cable: ' + ((e && e.message) || e), 'avisoConsola');
   }
-  if (!entro) {
-    consolaLinea('Pruebo ahora el toque de 1200 bps.', 'propio');
-    progreso(60, 'Probando el toque de 1200 bps…');
-    entro = await toque1200(puerto, 2);
-  }
+  // El toque se prueba SIEMPRE, aunque la orden parezca haber ido bien: es barato, es el camino
+  // que trae el firmware de fábrica y, si el nodo ya estuviera en modo grabación, no estorba.
+  consolaLinea(entro ? 'Refuerzo con el toque de 1200 bps.' : 'Pruebo el toque de 1200 bps.', 'propio');
+  progreso(60, 'Probando el toque de 1200 bps…');
+  if (await toque1200(puerto, 2)) entro = true;
+  if (!entro) consolaLinea('Ni la orden ni el toque han surtido efecto: habrá que entrar en modo grabación a mano.', 'avisoConsola');
   progreso(80, entro ? 'Nodo en modo grabación.' : 'Descargando el fichero…');
   consolaEstado(entro ? 'Nodo en modo grabación' : 'Descargando el fichero');
   descargar();

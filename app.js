@@ -511,6 +511,12 @@ function varint(n) {
 }
 function campoVarint(numero, valor) { return [...varint(numero << 3), ...varint(valor)]; }
 function campoBytes(numero, bytes) { return [...varint((numero << 3) | 2), ...varint(bytes.length), ...bytes]; }
+// En MeshPacket, from, to e id son FIXED32 (4 bytes fijos, en orden inverso), NO varint.
+// Mandarlos como varint hace que el nodo descarte el paquete entero con "wrong wire type".
+function campoFixed32(numero, valor) {
+  const v = valor >>> 0;
+  return [...varint((numero << 3) | 5), v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff];
+}
 function marco(bytes) { return [0x94, 0xc3, (bytes.length >> 8) & 0xff, bytes.length & 0xff, ...bytes]; }
 function leerVarint(b, i) { let r = 0, s = 0, x; do { x = b[i++]; r |= (x & 0x7f) << s; s += 7; } while (x & 0x80); return [r >>> 0, i]; }
 
@@ -606,11 +612,11 @@ async function ordenarDFU(puerto) {
     // Igual que la libreria oficial: from y to el propio nodo, want_ack, y SIN hop_limit
     // (va dirigido al propio nodo, asi que no sale al aire de todos modos).
     const construir = () => marco(campoBytes(1, [
-      ...campoVarint(1, nodo || 0),
-      ...campoVarint(2, nodo || 0xffffffff),
-      ...campoBytes(4, datos),
-      ...campoVarint(6, Math.floor(Math.random() * 0xfffffff) + 1),
-      ...campoVarint(10, 1),
+      ...campoFixed32(1, nodo || 0),          // from (FIXED32)
+      ...campoFixed32(2, nodo || 0xffffffff), // to   (FIXED32)
+      ...campoBytes(4, datos),                // decoded
+      ...campoFixed32(6, Math.floor(Math.random() * 0xfffffff) + 1), // id (FIXED32)
+      ...campoVarint(10, 1),                  // want_ack
     ]));
     const escritor = puerto.writable.getWriter();
     try {

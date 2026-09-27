@@ -207,7 +207,7 @@
           "R1IG_zip": {
             "nombre": "Faketec.NavaTastic.2.8.0.V6.R1IG.zip",
             "url": "https://github.com/EA2OY/NavaTasticV6/releases/download/v6/Faketec.NavaTastic.2.8.0.V6.R1IG.zip",
-            "bytes": 803452
+            "bytes": 803460
           },
           "R2IG_uf2": {
             "nombre": "Faketec.NavaTastic.2.8.0.V6.R2IG.uf2",
@@ -217,7 +217,7 @@
           "R2IG_zip": {
             "nombre": "Faketec.NavaTastic.2.8.0.V6.R2IG.zip",
             "url": "https://github.com/EA2OY/NavaTasticV6/releases/download/v6/Faketec.NavaTastic.2.8.0.V6.R2IG.zip",
-            "bytes": 803444
+            "bytes": 803468
           }
         },
         "Heltec T114": {
@@ -251,7 +251,7 @@
           "R1IG_zip": {
             "nombre": "Promicro.NRF52+E22P.NavaTastic.2.8.0.V6.R1IG.zip",
             "url": "https://github.com/EA2OY/NavaTasticV6/releases/download/v6/Promicro.NRF52%2BE22P.NavaTastic.2.8.0.V6.R1IG.zip",
-            "bytes": 803494
+            "bytes": 803510
           },
           "R2IG_uf2": {
             "nombre": "Promicro.NRF52+E22P.NavaTastic.2.8.0.V6.R2IG.uf2",
@@ -261,7 +261,7 @@
           "R2IG_zip": {
             "nombre": "Promicro.NRF52+E22P.NavaTastic.2.8.0.V6.R2IG.zip",
             "url": "https://github.com/EA2OY/NavaTasticV6/releases/download/v6/Promicro.NRF52%2BE22P.NavaTastic.2.8.0.V6.R2IG.zip",
-            "bytes": 803509
+            "bytes": 803525
           }
         },
         "Seed Solar Node P1": {
@@ -273,7 +273,7 @@
           "R1IG_zip": {
             "nombre": "Seed.Solar.Node.P1.NavaTastic.2.8.0.V6.R1IG.zip",
             "url": "https://github.com/EA2OY/NavaTasticV6/releases/download/v6/Seed.Solar.Node.P1.NavaTastic.2.8.0.V6.R1IG.zip",
-            "bytes": 800370
+            "bytes": 800362
           },
           "R2IG_uf2": {
             "nombre": "Seed.Solar.Node.P1.NavaTastic.2.8.0.V6.R2IG.uf2",
@@ -305,29 +305,29 @@
           "R2IG_zip": {
             "nombre": "XiaoKitI2c.NavaTastic.2.8.0.V6.R2IG.zip",
             "url": "https://github.com/EA2OY/NavaTasticV6/releases/download/v6/XiaoKitI2c.NavaTastic.2.8.0.V6.R2IG.zip",
-            "bytes": 800297
+            "bytes": 800298
           }
         },
         "XiaoKitI2c+E22P": {
           "R1IG_uf2": {
             "nombre": "XiaoKitI2c+E22P.NavaTastic.2.8.0.V6.R1IG.uf2",
             "url": "https://github.com/EA2OY/NavaTasticV6/releases/download/v6/XiaoKitI2c%2BE22P.NavaTastic.2.8.0.V6.R1IG.uf2",
-            "bytes": 1598464
+            "bytes": 1598976
           },
           "R1IG_zip": {
             "nombre": "XiaoKitI2c+E22P.NavaTastic.2.8.0.V6.R1IG.zip",
             "url": "https://github.com/EA2OY/NavaTasticV6/releases/download/v6/XiaoKitI2c%2BE22P.NavaTastic.2.8.0.V6.R1IG.zip",
-            "bytes": 800278
+            "bytes": 800294
           },
           "R2IG_uf2": {
             "nombre": "XiaoKitI2c+E22P.NavaTastic.2.8.0.V6.R2IG.uf2",
             "url": "https://github.com/EA2OY/NavaTasticV6/releases/download/v6/XiaoKitI2c%2BE22P.NavaTastic.2.8.0.V6.R2IG.uf2",
-            "bytes": 1598464
+            "bytes": 1598976
           },
           "R2IG_zip": {
             "nombre": "XiaoKitI2c+E22P.NavaTastic.2.8.0.V6.R2IG.zip",
             "url": "https://github.com/EA2OY/NavaTasticV6/releases/download/v6/XiaoKitI2c%2BE22P.NavaTastic.2.8.0.V6.R2IG.zip",
-            "bytes": 800278
+            "bytes": 800294
           }
         }
       },
